@@ -1,15 +1,15 @@
-import torch
-import timm
-import random
 import argparse
-import torch.nn as nn
-import numpy as np
+import random
 from sys import argv
-from tqdm import tqdm
-from torchvision.datasets import OxfordIIITPet
-from torch.utils.data import DataLoader
-from timm.layers.config import set_fused_attn
 
+import numpy as np
+import timm
+import torch
+import torch.nn as nn
+from timm.layers.config import set_fused_attn
+from torch.utils.data import DataLoader
+from torchvision.datasets import OxfordIIITPet
+from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
 tok_actions = ["cls", "mean", "top_one"]
@@ -246,7 +246,7 @@ def fit(model, last_linear, device, train_loader, test_loader):
             weight_decay=args.weight_decay,
         )
         for epoch in range(args.num_epochs):
-            print(f"Epoch {epoch+1}/{args.num_epochs+1}")
+            print(f"Epoch {epoch+1}/{args.num_epochs}")
             train(model, device, train_loader, optim, criterion)
             test(model, device, test_loader, criterion)
 
