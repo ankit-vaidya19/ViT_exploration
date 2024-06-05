@@ -8,17 +8,18 @@ import torch
 import torch.nn as nn
 from timm.layers.config import set_fused_attn
 from torch.utils.data import DataLoader
-from torchvision.datasets import OxfordIIITPet
+from torchvision.datasets import OxfordIIITPet, SVHN, Flowers102
 from tqdm import tqdm
 
 parser = argparse.ArgumentParser()
 tok_actions = ["cls", "mean", "top_one"]
 hook_actions = ["hooks_req", "no_hooks"]
+train_type = ["full_ft", "linear_probing"]
 parser.add_argument("--dataset", type=str, default="oxford_pets")
 parser.add_argument("--data_dir", type=str, default="/mnt/d/ViT")
 parser.add_argument("--download_dataset", type=bool, default=False)
 parser.add_argument("--save_dir", type=str, default="/mnt/d/ViT")
-parser.add_argument("--train_type", type=str, default="full_ft")
+parser.add_argument("--train_type", choices=train_type, type=str, default="full_ft")
 parser.add_argument("--use_hooks", choices=hook_actions, type=str, default="hooks_req")
 parser.add_argument("--block", required=(hook_actions[0] in argv), type=int, default=11)
 parser.add_argument(
@@ -26,17 +27,18 @@ parser.add_argument(
     required=(hook_actions[0] in argv),
     choices=tok_actions,
     type=str,
-    default=tok_actions[1],
+    default="mean",
 )
 parser.add_argument(
-    "--num_tokens_for_mean", required=(tok_actions[1] in argv), type=int, default=10
+    "--num_tokens_for_mean", required=("mean" in argv), type=int, default=10
 )
-parser.add_argument("--num_epochs", type=int, default=2)
+parser.add_argument("--num_epochs", type=int, default=10)
 parser.add_argument("--train_batch_size", type=int, default=32)
-parser.add_argument("--test_batch_size", type=int, default=128)
+parser.add_argument("--test_batch_size", type=int, default=32)
 parser.add_argument("--num_workers", type=int, default=2)
-parser.add_argument("--learning_rate", type=float, default=1e-4)
+parser.add_argument("--learning_rate", type=float, default=5e-6)
 parser.add_argument("--weight_decay", type=float, default=1e-6)
+parser.add_argument("--device", type=str, default="cuda:0")
 
 args = parser.parse_args()
 
@@ -77,8 +79,62 @@ def create_dataloaders(train_transforms, test_transforms):
             num_workers=args.num_workers,
         )
         return num_classes, train_loader, test_loader
+    elif args.dataset == "svhn":
+        train_ds = SVHN(
+            root=args.data_dir,
+            split="train",
+            download=args.download_dataset,
+            transform=train_transforms,
+        )
+        test_ds = SVHN(
+            root=args.data_dir,
+            split="test",
+            download=args.download_dataset,
+            transform=test_transforms,
+        )
+        num_classes = len(train_ds.classes)
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=args.train_batch_size,
+            shuffle=True,
+            num_workers=args.num_workers,
+        )
+        test_loader = DataLoader(
+            test_ds,
+            batch_size=args.test_batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+        )
+        return num_classes, train_loader, test_loader
+    elif args.dataset == "flowers_102":
+        train_ds = Flowers102(
+            root=args.data_dir,
+            split="train",
+            download=args.download_dataset,
+            transform=train_transforms,
+        )
+        test_ds = Flowers102(
+            root=args.data_dir,
+            split="test",
+            download=args.download_dataset,
+            transform=test_transforms,
+        )
+        num_classes = len(train_ds.classes)
+        train_loader = DataLoader(
+            train_ds,
+            batch_size=args.train_batch_size,
+            shuffle=True,
+            num_workers=args.num_workers,
+        )
+        test_loader = DataLoader(
+            test_ds,
+            batch_size=args.test_batch_size,
+            shuffle=False,
+            num_workers=args.num_workers,
+        )
+        return num_classes, train_loader, test_loader
     else:
-        pass
+        raise ValueError(f"Dataset not found, got {args.dataset=}")
 
 
 def create_hooks(model):
@@ -112,9 +168,8 @@ def get_last_lin_input(hook_dict, batch_len):
         indices = (
             torch.topk(attn_map, k=args.num_tokens_for_mean, largest=True, sorted=True)
             .indices.unsqueeze(2)
-            .expand(batch_len, args.num_tokens_for_mean, 768)
+            .expand(batch_len, args.num_tokens_for_mean, args.model_hidden_dim)
         )
-        print(indices.shape)
         pooler_op = hook_dict[f"block_op{args.block-1}"][0]
         linear_inp = torch.gather(pooler_op, dim=1, index=indices).mean(dim=1)
     elif args.tokens_used == "top_one":
@@ -268,7 +323,7 @@ def fit(model, last_linear, device, train_loader, test_loader):
                 weight_decay=args.weight_decay,
             )
         for epoch in range(args.num_epochs):
-            print(f"Epoch {epoch+1}/{args.num_epochs+1}")
+            print(f"Epoch {epoch+1}/{args.num_epochs}")
             train_with_hooks(model, last_linear, device, train_loader, optim, criterion)
             test_with_hooks(model, last_linear, device, test_loader, criterion)
         print("Saving Model")
@@ -284,11 +339,15 @@ def fit(model, last_linear, device, train_loader, test_loader):
 
 def main():
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(args.device if torch.cuda.is_available() else None)
+
+    if device is None:
+        raise ValueError("CUDA not found...")
 
     model = timm.create_model(
         "vit_base_patch16_224.augreg2_in21k_ft_in1k", pretrained=True
     )
+    args.model_hidden_dim = model.embed_dim
 
     data_config = timm.data.resolve_model_data_config(model)
     transforms_train = timm.data.create_transform(**data_config, is_training=True)
