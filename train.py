@@ -17,7 +17,7 @@ hook_actions = ["hooks_req", "no_hooks"]
 train_type = ["full_ft", "linear_probing"]
 parser.add_argument("--dataset", type=str, default="oxford_pets")
 parser.add_argument("--data_dir", type=str, default="/mnt/d/ViT")
-parser.add_argument("--download_dataset", type=bool, default=False)
+parser.add_argument("--download_dataset", type=bool, default=True)
 parser.add_argument("--save_dir", type=str, default="/mnt/d/ViT")
 parser.add_argument("--train_type", choices=train_type, type=str, default="full_ft")
 parser.add_argument("--use_hooks", choices=hook_actions, type=str, default="hooks_req")
@@ -329,11 +329,11 @@ def fit(model, last_linear, device, train_loader, test_loader):
         print("Saving Model")
         torch.save(
             model.state_dict(),
-            f"{args.save_dir}/{args.dataset}_{args.use_hooks}_{args.train_type}_backbone.pt",
+            f"{args.save_dir}/{args.dataset}_{args.use_hooks}_{args.train_type}_{args.tokens_used}_backbone.pt",
         )
         torch.save(
             last_linear.state_dict(),
-            f"{args.save_dir}/{args.dataset}_{args.use_hooks}_{args.train_type}_linear_layer.pt",
+            f"{args.save_dir}/{args.dataset}_{args.use_hooks}_{args.train_type}_{args.tokens_used}_linear_layer.pt",
         )
 
 
